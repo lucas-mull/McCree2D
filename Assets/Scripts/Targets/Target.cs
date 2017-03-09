@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class TargetHit : MonoBehaviour {
+public class Target : MonoBehaviour {
 
     public AudioClip _soundHit;
     public int _scoreValue = 10;    
@@ -14,7 +14,6 @@ public class TargetHit : MonoBehaviour {
     private Animator _animator;
     private AudioSource _audioSource;
     private bool _enabled = true;
-    private int _targetId = 0;
     private Mccree _mccree;
 
     private void Start()
@@ -37,34 +36,39 @@ public class TargetHit : MonoBehaviour {
 
     private void OnMouseDown()
     {
-        if (_enabled && !_mccree.IsReloading())
+        if (_enabled && !_mccree.IsReloading() && !_mccree.IsInDeadeye())
         {
-            GetComponent<CircleCollider2D>().enabled = false;
-            _enabled = false;            
-
-            _mccree.UpdateScore(_scoreValue);
-
-            _mccree.Hit();
-            _animator.SetTrigger("hit");
-            _audioSource.PlayOneShot(_soundHit);           
-
-            _targetsController.TargetDestroyed(this);
+            this.Destroy();
         }
         else
         {
             Debug.Log("Hit but not registered - _enabled = " + _enabled + " , reloading = " + _mccree.IsReloading());
         }
-        
+
+    }
+
+    public void Deadeye()
+    {
+        GetComponent<Animator>().SetTrigger("deadeye");
+    }
+
+    public void Destroy()
+    {
+        GetComponent<CircleCollider2D>().enabled = false;
+        _enabled = false;
+
+        _mccree.UpdateScore(_scoreValue);
+
+        _mccree.Hit();
+        _animator.SetTrigger("hit");
+        _audioSource.PlayOneShot(_soundHit);
+
+        _targetsController.TargetDestroyed(this);
     }
 
     private void DestroyInstance()
     {        
         Destroy(gameObject);
-    }
-
-    public void AssignId(int id)
-    {
-        _targetId = id;
     }
 
     public void Disappear()
@@ -73,7 +77,12 @@ public class TargetHit : MonoBehaviour {
         _enabled = false;
     }
 
-    public bool IsColliding(TargetHit other)
+    public bool IsEnabled()
+    {
+        return _enabled;
+    }
+
+    public bool IsColliding(Target other)
     {
         return GetComponent<CircleCollider2D>().IsTouching(other.GetComponent<CircleCollider2D>());
     }

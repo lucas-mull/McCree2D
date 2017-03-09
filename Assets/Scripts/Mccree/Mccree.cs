@@ -6,24 +6,28 @@ using UnityEngine.UI;
 public class Mccree : MonoBehaviour {
 
     const int CLIP_SIZE = 6;
+    const int MAX_MULTIPLICATOR = 32;
 
-    public AudioClip _soundGun, _soundStep, _soundReload;
+    public AudioClip _soundGun, _soundStep, _soundReload, _voiceDeadeyeReady;
+    public AudioClip[] _voiceLines;
     public Text _scoreText, _hintText, _comboText;
-    public Image _clipBar;
+    public Image _clipBar, _deadeyeBar, _deadeyeFlames;
+    public GameObject _mccreeFlames;
     public float _reloadSpeed = 1.0f;
     public int _comboTreshold = 3;
 
     private Animator _animator;
-    private AudioSource _audioSource;
-    private float _speed = 7.0f, _reloadTime, _timeSpentReloading = 0.0f;
-    private int _score = 0, _bullets = CLIP_SIZE, _shotsTaken = 0, _totalHits = 0, _totalMissed = 0;
-    private bool _updateScore = false, _facingLeft = true, _isShooting = false, _isMoving = false, _isReloading = false;
+    private AudioSource _audioSource, _voiceAudioSource;
+    private float _speed = 7.0f, _reloadTime, _timeSpentReloading = 0.0f, _deadeyePercent = 0.0f;
+    private int _score = 0, _bullets = CLIP_SIZE, _shotsTaken = 0, _totalHits = 0, _totalMissed = 0, _deadeyeKills = 0;
+    private bool _updateScore = false, _facingLeft = true, _isShooting = false, _isMoving = false, _isReloading = false, _deadeyeReady = false, _inDeadeye = false;
     private int _shotsWithoutMissing = 0, _combo = 1, _maxCombo = 1;
 
 	// Use this for initialization
 	void Start () {
         _animator = GetComponent<Animator>();
         _audioSource = GetComponent<AudioSource>();
+        _voiceAudioSource = GameObject.Find("Interface").GetComponent<AudioSource>();
 
         _reloadTime = _soundReload.length;
     }
@@ -32,6 +36,17 @@ public class Mccree : MonoBehaviour {
 	void Update () {
 
         _comboText.text = _combo + "x";
+        _deadeyeBar.fillAmount = _deadeyePercent;
+
+        if (IsDeadeyeReady() && !_deadeyeReady)
+        {            
+            _voiceAudioSource.PlayOneShot(_voiceDeadeyeReady);
+
+            Debug.Log("Deadeye is ready !");
+            _deadeyeReady = true;
+            _deadeyeFlames.GetComponent<Animator>().SetBool("ult", true);
+            //_mccreeFlames.SetActive(true);
+        }
 
         if (_updateScore)
         {
@@ -69,7 +84,7 @@ public class Mccree : MonoBehaviour {
         //    _animator.SetFloat("speed", -1.0f);
         //}
 
-        if (Input.GetMouseButton(0) && !_isShooting)
+        if (Input.GetMouseButton(0) && !_isShooting && !_isReloading && !_inDeadeye)
         {            
             StartCoroutine(Shoot());
         }
@@ -87,9 +102,6 @@ public class Mccree : MonoBehaviour {
 
     IEnumerator Shoot()
     {
-        if (_isReloading)
-            yield break;
-
         _isShooting = true;
 
         _bullets--;
@@ -104,8 +116,8 @@ public class Mccree : MonoBehaviour {
         if (_shotsTaken - _totalHits > _totalMissed)
         {
             _totalMissed++;
-            _hintText.text = "MISS !";
-            _hintText.GetComponent<Animator>().SetTrigger("appear");
+
+            ShowHint("MISS !", Color.white, "appear");
 
             _shotsWithoutMissing = 0;
             _combo = 1;
@@ -132,9 +144,8 @@ public class Mccree : MonoBehaviour {
 
         _timeSpentReloading += _reloadTime / _reloadSpeed;
 
-        _hintText.text = "RELOADING";
+        ShowHint("RELOADING", Color.white, "blink");
         Animator hintAnimator = _hintText.GetComponent<Animator>();
-        hintAnimator.SetTrigger("blink");
         hintAnimator.speed = _reloadSpeed;
 
         _bullets = CLIP_SIZE;
@@ -153,17 +164,68 @@ public class Mccree : MonoBehaviour {
     {
         _totalHits++;
         _shotsWithoutMissing++;
-        if (_shotsWithoutMissing % _comboTreshold == 0)
+        if (_shotsWithoutMissing % _comboTreshold == 0 && _combo < MAX_MULTIPLICATOR)
         {
             _combo *= 2;
 
             if (_combo > _maxCombo)
                 _maxCombo = _combo;
-        }            
+
+            ShowHint(_combo + "X", Color.yellow, "appear");
+
+            if (!_voiceAudioSource.isPlaying && Random.Range(0, 2) == 1)
+                _voiceAudioSource.PlayOneShot(_voiceLines[Random.Range(0, _voiceLines.Length)]);
+        }
+    }
+
+    public void IncrementDeadeyePercent()
+    {
+        _deadeyePercent += (0.01f * _combo);
+        _deadeyePercent = Mathf.Clamp(_deadeyePercent, 0.0f, 1.0f);
+    }
+
+    public void NotifyDeadeyeHasStarted()
+    {
+        _inDeadeye = true;
+    }
+
+    public void Deadeye(int targets)
+    {
+        StartCoroutine(Ult(targets));
+    }
+
+    public bool IsDeadeyeReady()
+    {
+        return _deadeyePercent == 1.0f;
+    }
+
+    private IEnumerator Ult(int targets)
+    {
+        _inDeadeye = true;
+        for (int i = 0; i < targets; i++, _shotsTaken++)
+        {
+            _animator.SetTrigger("shoot");
+            _audioSource.PlayOneShot(_soundGun);
+            yield return new WaitForSeconds(0.1f);
+        }
+
+        _deadeyePercent = 0.0f;
+        //_mccreeFlames.SetActive(false);
+        _deadeyeFlames.GetComponent<Animator>().SetBool("ult", false);
+        _deadeyeReady = false;
+        _inDeadeye = false;
+        _deadeyeKills += targets;
     }
 
     public void UpdateScore(int toAdd)
     {
+        // Les cibles touchées par l'ult ne comptent pas pour remplir la jauge du prochain ult.
+        if (!_deadeyeReady)
+        {
+            _deadeyePercent += (0.01f * toAdd / 10.0f);
+            _deadeyePercent = Mathf.Clamp(_deadeyePercent, 0.0f, 1.0f);
+        }
+
         _score += (_combo * toAdd);
         _updateScore = true;
     }
@@ -171,6 +233,11 @@ public class Mccree : MonoBehaviour {
     public bool IsReloading()
     {
         return _isReloading;
+    }
+
+    public bool IsInDeadeye()
+    {
+        return _inDeadeye;
     }
 
     public void ReportScoringData()
@@ -181,5 +248,17 @@ public class Mccree : MonoBehaviour {
         endingScreen.MaxCombo = _maxCombo;
         endingScreen.TimeSpentReloading = _timeSpentReloading;
         endingScreen.TotalScore = _score;
+        endingScreen.DeadeyeKills = _deadeyeKills;
+    }
+
+    public void ShowHint(string text, Color color, string motion, bool stay = false)
+    {
+        _hintText.text = text;
+        _hintText.color = color;
+        _hintText.GetComponent<Animator>().SetTrigger(motion);
+        if (stay)
+        {
+            _hintText.GetComponent<Animator>().SetTrigger("stay");
+        }
     }
 }
