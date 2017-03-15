@@ -13,15 +13,16 @@ public class Mccree : MonoBehaviour {
     public Text _scoreText, _hintText, _comboText;
     public Image _clipBar, _deadeyeBar, _deadeyeFlames;
     public GameObject _mccreeFlames;
-    public float _reloadSpeed = 1.0f;
+    public float _reloadSpeed = 1.0f, _hurtTime = 1f;
     public int _comboTreshold = 3;
 
     private Animator _animator;
     private AudioSource _audioSource, _voiceAudioSource;
     private float _speed = 7.0f, _reloadTime, _timeSpentReloading = 0.0f, _deadeyePercent = 0.0f;
     private int _score = 0, _bullets = CLIP_SIZE, _shotsTaken = 0, _totalHits = 0, _totalMissed = 0, _deadeyeKills = 0;
-    private bool _updateScore = false, _facingLeft = true, _isShooting = false, _isMoving = false, _isReloading = false, _deadeyeReady = false, _inDeadeye = false;
+    private bool _updateScore = false, _facingLeft = true, _isShooting = false, _isMoving = false, _isReloading = false, _deadeyeReady = false, _inDeadeye = false, _isHurting = false;
     private int _shotsWithoutMissing = 0, _combo = 1, _maxCombo = 1;
+    private int _indexOfLastVoiceClip = 0;
 
 	// Use this for initialization
 	void Start () {
@@ -51,11 +52,7 @@ public class Mccree : MonoBehaviour {
         if (_updateScore)
         {
             _updateScore = false;
-            _scoreText.text = "" + _score;
-            if (_score < 0)
-                _scoreText.color = Color.red;
-            else
-                _scoreText.color = Color.green;            
+            _scoreText.text = "" + _score;         
         }
 
         //float h = Input.GetAxis("Horizontal");
@@ -84,7 +81,7 @@ public class Mccree : MonoBehaviour {
         //    _animator.SetFloat("speed", -1.0f);
         //}
 
-        if (Input.GetMouseButton(0) && !_isShooting && !_isReloading && !_inDeadeye)
+        if (Input.GetMouseButtonDown(0) && !_isShooting && !_isReloading && !_inDeadeye)
         {            
             StartCoroutine(Shoot());
         }
@@ -93,10 +90,36 @@ public class Mccree : MonoBehaviour {
             StartCoroutine(Reload());
         }
 
-        // Personnage se tourne vers l'hémisphère de l'écran où se situe la souris
+        // Character faces the half of the screen where mouse cursor (crosshair) is located
         Vector2 mccreePosition = Camera.main.WorldToScreenPoint(transform.position);        
         GetComponent<SpriteRenderer>().flipX = (Input.mousePosition.x > mccreePosition.x);
 
+    }
+
+    private void OnTriggerEnter2D(Collider2D collision)
+    {
+        Debug.Log("Hit - name = " + collision.name + " - tag = " + collision.transform.parent.tag);
+        if (collision.transform.parent.tag == "Enemy" && !_isHurting)
+        {
+            _isHurting = true;
+            StartCoroutine(Hurt());
+        }
+    }
+
+    IEnumerator Hurt()
+    {
+        // Combo falls back to 1 when hit
+        // TODO - cancels high noon if started ?
+        ResetCombo();
+        ShowHint("Combo lost !", Color.red, "appear");
+
+        // Make character blink for _hurtTime seconds
+        _animator.SetBool("hurt", true);
+        yield return new WaitForSeconds(_hurtTime);
+        _animator.SetBool("hurt", false);
+
+        // Character can be hurt again
+        _isHurting = false;
     }
 
 
@@ -110,7 +133,13 @@ public class Mccree : MonoBehaviour {
         if (_bullets == 0)
             _isReloading = true;
         
-        _shotsTaken++;
+        _shotsTaken++;        
+
+        _clipBar.fillAmount -= (1.0f / 6.0f);               
+
+        _animator.SetTrigger("shoot");
+        _audioSource.PlayOneShot(_soundGun);
+        yield return new WaitForSeconds(0.1f);
 
         // Player missed
         if (_shotsTaken - _totalHits > _totalMissed)
@@ -120,14 +149,8 @@ public class Mccree : MonoBehaviour {
             ShowHint("MISS !", Color.white, "appear");
 
             _shotsWithoutMissing = 0;
-            _combo = 1;
+            ResetCombo();
         }
-
-        _clipBar.fillAmount -= (1.0f / 6.0f);               
-
-        _animator.SetTrigger("shoot");
-        _audioSource.PlayOneShot(_soundGun);
-        yield return new WaitForSeconds(0.1f);
 
         // Reload
         if (_bullets == 0)
@@ -136,6 +159,11 @@ public class Mccree : MonoBehaviour {
         }
                 
         _isShooting = false;        
+    }
+
+    private void ResetCombo()
+    {
+        _combo = 1;
     }
 
     IEnumerator Reload()
@@ -174,7 +202,14 @@ public class Mccree : MonoBehaviour {
             ShowHint(_combo + "X", Color.yellow, "appear");
 
             if (!_voiceAudioSource.isPlaying && Random.Range(0, 2) == 1)
-                _voiceAudioSource.PlayOneShot(_voiceLines[Random.Range(0, _voiceLines.Length)]);
+            {
+                int voiceClipIndex = Random.Range(0, _voiceLines.Length);
+                if (voiceClipIndex != _indexOfLastVoiceClip)
+                {
+                    _voiceAudioSource.PlayOneShot(_voiceLines[voiceClipIndex]);
+                    _indexOfLastVoiceClip = voiceClipIndex;
+                }                    
+            }                
         }
     }
 
